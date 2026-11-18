@@ -6,6 +6,7 @@ from app.optimizer import (
     Constraints,
     InfeasibleError,
     check_feasible,
+    efficient_frontier,
     estimate,
     max_feasible_return,
     max_sharpe_weights,
@@ -123,3 +124,126 @@ def test_estimate_annualizes_returns(prices):
     assert mu["AAA"] == pytest.approx(daily["AAA"].mean() * 252)
     # Shrinkage moves the sample variance, but it stays in the same range.
     assert cov.loc["AAA", "AAA"] == pytest.approx(daily["AAA"].var() * 252, rel=0.25)
+
+
+# --- efficient_frontier edge cases -------------------------------------------------
+
+
+def two_asset_volatility(w_a, vol_a=0.2, vol_b=0.1, rho=0.3):
+    w_b = 1 - w_a
+    variance = (w_a * vol_a) ** 2 + (w_b * vol_b) ** 2 + 2 * w_a * w_b * rho * vol_a * vol_b
+    return np.sqrt(variance)
+
+
+def test_two_asset_frontier_matches_hand_calculation():
+    # With two assets the target return fixes the weights: w_A = (r - mu_B) / (mu_A - mu_B).
+    mu, cov = two_assets()  # mu_A=10%, mu_B=5%, vol 20%/10%, rho 0.3
+    covariance = 0.3 * 0.2 * 0.1
+    min_vol_a = (0.1**2 - covariance) / (0.2**2 + 0.1**2 - 2 * covariance)  # 2/19
+    low = min_vol_a * 0.10 + (1 - min_vol_a) * 0.05  # 0.0552632
+    frontier = efficient_frontier(mu, cov, 0.02, Constraints(), low, points=5)
+
+    assert len(frontier) == 5
+    targets = np.linspace(low, 0.10 - 1e-6, 5)
+    for portfolio, target in zip(frontier, targets):
+        expected_a = (target - 0.05) / (0.10 - 0.05)
+        assert portfolio.weights["A"] == pytest.approx(expected_a, abs=1e-4)
+        assert portfolio.weights["B"] == pytest.approx(1 - expected_a, abs=1e-4)
+        assert portfolio.expected_return == pytest.approx(target, abs=1e-5)
+        assert portfolio.volatility == pytest.approx(two_asset_volatility(expected_a), abs=1e-4)
+        assert portfolio.sharpe == pytest.approx(
+            (portfolio.expected_return - 0.02) / portfolio.volatility
+        )
+    # Ends: the min-vol mix (A = 2/19, vol ~9.787%) and essentially all of A.
+    assert frontier[0].weights["A"] == pytest.approx(2 / 19, abs=1e-4)
+    assert frontier[0].volatility == pytest.approx(0.097872, abs=1e-5)
+    assert frontier[-1].weights["A"] == pytest.approx(1.0, abs=1e-4)
+    assert frontier[-1].volatility == pytest.approx(0.20, abs=1e-4)
+
+
+def test_two_asset_frontier_through_optimize(prices):
+    result = optimize(prices[["AAA", "BBB"]], risk_free=0.0, frontier_points=10)
+    assert len(result.frontier) == 10
+    returns = np.array([p.expected_return for p in result.frontier])
+    assert (np.diff(returns) > 0).all()
+    assert returns[0] == pytest.approx(result.min_volatility.expected_return, abs=1e-6)
+    for portfolio in result.frontier:
+        assert sum(portfolio.weights.values()) == pytest.approx(1.0, abs=1e-9)
+
+
+def near_identical_assets(mu_a, mu_b, vol=0.2, rho=0.99999):
+    names = ["A", "B"]
+    mu = pd.Series([mu_a, mu_b], index=names)
+    cov = pd.DataFrame(
+        [[vol**2, rho * vol**2], [rho * vol**2, vol**2]], index=names, columns=names
+    )
+    return mu, cov
+
+
+def test_nearly_identical_assets_give_valid_frontier():
+    # Covariance is almost singular; the solver must still return sensible portfolios.
+    mu, cov = near_identical_assets(0.080, 0.081)
+    min_vol = min_vol_weights(mu, cov, Constraints())
+    assert min_vol["A"] == pytest.approx(0.5, abs=1e-4)  # equal vols -> 50/50
+    low = float(min_vol @ mu)
+    frontier = efficient_frontier(mu, cov, 0.02, Constraints(), low, points=5)
+
+    assert len(frontier) == 5
+    for portfolio in frontier:
+        weights = np.array(list(portfolio.weights.values()))
+        assert np.isfinite(weights).all()
+        assert weights.sum() == pytest.approx(1.0, abs=1e-9)
+        assert (weights >= -1e-9).all() and (weights <= 1 + 1e-9).all()
+        assert low - 1e-6 <= portfolio.expected_return <= 0.081 + 1e-9
+        # Every mix of the two has almost exactly 20% volatility.
+        assert portfolio.volatility == pytest.approx(0.20, abs=1e-5)
+    assert frontier[-1].weights["B"] == pytest.approx(1.0, abs=1e-4)
+
+
+def test_nearly_identical_returns_give_empty_frontier():
+    # The return range is narrower than the 1e-6 safety margin, so there's no curve to draw.
+    mu, cov = near_identical_assets(0.08, 0.0800001)
+    low = float(min_vol_weights(mu, cov, Constraints()) @ mu)
+    assert efficient_frontier(mu, cov, 0.02, Constraints(), low) == []
+
+
+def test_nearly_identical_prices_through_optimize(prices):
+    rng = np.random.default_rng(1)
+    twins = pd.DataFrame(
+        {
+            "X": prices["AAA"],
+            "Y": prices["AAA"] * (1 + rng.normal(0, 1e-5, len(prices))),
+        }
+    )
+    result = optimize(twins, risk_free=0.0, frontier_points=10)
+    assert result.warnings == []
+    assert result.max_sharpe is not None
+    for portfolio in (result.min_volatility, result.max_sharpe, *result.frontier):
+        assert sum(portfolio.weights.values()) == pytest.approx(1.0, abs=1e-9)
+        assert portfolio.volatility == pytest.approx(result.min_volatility.volatility, rel=1e-4)
+
+
+@pytest.mark.parametrize(
+    "columns, constraints",
+    [
+        (["AAA", "BBB", "CCC", "DDD"], Constraints(0.25, 0.25)),
+        (["AAA", "BBB", "CCC", "DDD"], Constraints(0.25, 1.0)),  # minimums use up 100%
+        (["AAA", "BBB", "CCC", "DDD"], Constraints(0.0, 0.25)),  # maximums only reach 100%
+        (["AAA", "BBB"], Constraints(0.5, 0.5)),
+    ],
+)
+def test_bounds_allowing_one_portfolio(prices, columns, constraints):
+    subset = prices[columns]
+    equal = 1 / len(columns)
+    mu, cov = estimate(subset)
+
+    assert max_feasible_return(mu, constraints) == pytest.approx(mu.mean())
+    assert efficient_frontier(mu, cov, 0.0, constraints, float(mu.mean())) == []
+
+    result = optimize(subset, risk_free=0.0, constraints=constraints, frontier_points=10)
+    assert result.frontier == []
+    assert result.max_sharpe is not None
+    for portfolio in (result.min_volatility, result.max_sharpe):
+        for weight in portfolio.weights.values():
+            assert weight == pytest.approx(equal, abs=1e-5)  # solver tolerance
+        assert portfolio.expected_return == pytest.approx(mu.mean(), abs=1e-5)
