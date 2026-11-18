@@ -6,7 +6,7 @@ import numpy as np
 import pandas as pd
 import pytest
 
-from app.backtest import Metrics, compute_metrics
+from app.backtest import Metrics, compute_metrics, simulate
 
 # Five points spanning 2020-01-01 to 2024-01-01: 366 + 365 + 365 + 365 = 1461 days,
 # which is exactly 4 * 365.25, so the backtest spans exactly 4 years.
@@ -82,3 +82,28 @@ def test_zero_length_span_gives_zero_cagr_and_turnover():
     m = compute_metrics(np.array([1.0, 1.1, 1.0]), same_day, risk_free=0.0, traded=[1.0, 0.5])
     assert m.cagr == 0.0
     assert m.annual_turnover == 0.0
+
+
+def test_annual_turnover_from_simulated_drift_and_rebalances():
+    # Hand-checked end to end: simulate() produces the traded notionals, then
+    # compute_metrics annualizes them over the same exact 4-year span as DATES.
+    prices = np.array(
+        [
+            [100.0, 100.0],
+            [150.0, 100.0],  # A +50%: 50/50 drifts to 0.75/1.25 = 0.6 and 0.4
+            [150.0, 100.0],
+            [150.0, 100.0],
+            [150.0, 100.0],
+        ]
+    )
+    trades = {
+        0: np.array([0.5, 0.5]),  # opening buy from cash: notional 1.0 (not turnover)
+        1: np.array([0.5, 0.5]),  # back to 50/50: |0.5-0.6| + |0.5-0.4| = 0.2
+        3: np.array([1.0, 0.0]),  # flat prices, still 50/50: |1-0.5| + |0-0.5| = 1.0
+    }
+    equity, traded = simulate(prices, trades, 0, cost_bps=0)
+    assert traded == [pytest.approx(1.0), pytest.approx(0.2), pytest.approx(1.0)]
+
+    m = compute_metrics(equity, DATES, risk_free=0.0, traded=traded)
+    # One-way = (0.2 + 1.0) / 2 = 0.6, spread over exactly 4 years.
+    assert m.annual_turnover == pytest.approx(0.15)

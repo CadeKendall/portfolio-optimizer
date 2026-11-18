@@ -104,3 +104,17 @@ def test_serves_the_page(client):
     response = client.get("/")
     assert response.status_code == 200
     assert "Portfolio Optimizer" in response.text
+
+
+def test_backtest_response_includes_annual_turnover(client):
+    response = client.post(
+        "/api/backtest",
+        json={"tickers": ["TLT", "QQQ", "SHY"], "benchmark": "SPY", "years": 5, "lookback_years": 1},
+    )
+    assert response.status_code == 200, response.text
+    by_name = {s["name"]: s["metrics"] for s in response.json()["result"]["strategies"]}
+    for metrics in by_name.values():
+        assert isinstance(metrics["annual_turnover"], float)
+        assert metrics["annual_turnover"] >= 0
+    assert by_name["SPY"]["annual_turnover"] == 0  # buy-and-hold benchmark never trades
+    assert by_name["Equal weight"]["annual_turnover"] > 0  # monthly drift gets rebalanced

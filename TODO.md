@@ -6,7 +6,7 @@
 - [x] Tests for efficient_frontier edge cases: two assets, two nearly identical assets, and bounds tight enough that only one portfolio is feasible.
 - [x] Test that monthly vs quarterly rebalancing produces the expected number of rebalance dates on a known date range.
 - [ ] Add Sortino and Calmar ratios to backtest metrics, with hand-checked tests. Add them to the API response. Don't change the frontend yet. BLOCKED: needs editing the expected field set in test_compute_metrics_returns_every_field_checked_above, which CLAUDE.md forbids; please confirm that edit is OK.
-- [ ] Add annualized turnover to backtest metrics, with a hand-checked test, and add it to the API response.
+- [x] Add annualized turnover to backtest metrics, with a hand-checked test, and add it to the API response.
 - [ ] Add an inverse-volatility (simple risk parity) strategy to the backtest alongside equal weight, with tests including the no-lookahead check.
 - [ ] Add an endpoint that returns backtest equity curves as CSV, with an API test.
 - [ ] Add docstrings to every public function in app/ that doesn't have one. No behavior changes.
