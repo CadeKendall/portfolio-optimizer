@@ -21,6 +21,7 @@ from .optimizer import (
     TRADING_DAYS,
     check_feasible,
     estimate,
+    inverse_vol_weights,
     max_sharpe_weights,
     min_vol_weights,
 )
@@ -29,6 +30,7 @@ FREQUENCIES = {"monthly": "M", "quarterly": "Q"}
 MAX_SHARPE = "Max Sharpe"
 MIN_VOL = "Min volatility"
 EQUAL_WEIGHT = "Equal weight"
+INVERSE_VOL = "Inverse volatility"
 
 
 @dataclass
@@ -78,11 +80,13 @@ def compute_targets(
     lookback: int,
     risk_free: float,
     constraints: Constraints,
+    inverse_volatility: bool = False,
 ) -> tuple[dict[str, dict[int, np.ndarray]], list[Skip]]:
     """Target weights per strategy, keyed by signal position.
 
     A signal with no entry means "keep holding what you have". If the very first signal
     can't be solved there is nothing to hold yet, so that strategy starts equal weight.
+    The inverse-volatility strategy is only included when `inverse_volatility` is true.
     """
     n = prices.shape[1]
     equal = np.full(n, 1 / n)
@@ -91,6 +95,8 @@ def compute_targets(
         MIN_VOL: {},
         EQUAL_WEIGHT: {i: equal for i in signals},
     }
+    if inverse_volatility:
+        targets[INVERSE_VOL] = {}
     skips: list[Skip] = []
 
     for i in signals:
@@ -100,6 +106,8 @@ def compute_targets(
             MAX_SHARPE: lambda: max_sharpe_weights(mu, cov, risk_free, constraints),
             MIN_VOL: lambda: min_vol_weights(mu, cov, constraints),
         }
+        if inverse_volatility:
+            solvers[INVERSE_VOL] = lambda: inverse_vol_weights(window, constraints)
         for name, solve in solvers.items():
             try:
                 targets[name][i] = solve().to_numpy()
@@ -171,6 +179,7 @@ def run_backtest(
     cost_bps: float = 5.0,
     risk_free: float = 0.04,
     constraints: Constraints = Constraints(),
+    inverse_volatility: bool = False,
 ) -> BacktestResult:
     check_feasible(prices.shape[1], constraints)
     signals = signal_positions(prices.index, frequency, lookback)
@@ -180,7 +189,9 @@ def run_backtest(
             f" {len(prices)} shared trading days. Shorten the lookback or add history."
         )
 
-    targets, skips = compute_targets(prices, signals, lookback, risk_free, constraints)
+    targets, skips = compute_targets(
+        prices, signals, lookback, risk_free, constraints, inverse_volatility
+    )
     start = signals[0] + 1
     dates = prices.index[start:]
     values = prices.to_numpy(dtype=float)

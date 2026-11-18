@@ -123,6 +123,35 @@ def max_sharpe_weights(
     return _solve(mu, cov, constraints, "max_sharpe", risk_free_rate=risk_free)
 
 
+def inverse_vol_weights(prices: pd.DataFrame, constraints: Constraints) -> pd.Series:
+    """Weights proportional to 1 / volatility of daily returns (simple risk parity).
+
+    Correlations are ignored. If a weight falls outside the bounds it is clipped, and the
+    other weights are rescaled together so the total is still 100%.
+    """
+    vol = prices.pct_change().dropna(how="any").std(ddof=1).to_numpy(dtype=float)
+    if not (np.isfinite(vol).all() and (vol > 0).all()):
+        raise OptimizationFailed(
+            "inverse volatility: an asset had zero or undefined volatility in the window."
+        )
+    raw = (1 / vol) / (1 / vol).sum()
+    lo, hi = constraints.min_weight, constraints.max_weight
+    if (raw >= lo).all() and (raw <= hi).all():
+        return pd.Series(raw, index=prices.columns)
+
+    # The clipped total grows with the scale, from n*lo at 0 to n*hi at hi/min(raw), and
+    # check_feasible guarantees 1 lies in between. Bisect for the scale that totals 1.
+    low, high = 0.0, hi / raw.min()
+    for _ in range(200):
+        mid = (low + high) / 2
+        if np.clip(mid * raw, lo, hi).sum() < 1:
+            low = mid
+        else:
+            high = mid
+    weights = np.clip(high * raw, lo, hi)
+    return pd.Series(weights / weights.sum(), index=prices.columns)
+
+
 def _portfolio(weights: pd.Series, mu: pd.Series, cov: pd.DataFrame, risk_free: float) -> Portfolio:
     expected = float(weights @ mu)
     volatility = float(np.sqrt(weights @ cov @ weights))

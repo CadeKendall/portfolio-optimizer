@@ -4,6 +4,7 @@ import pytest
 
 from app.backtest import (
     EQUAL_WEIGHT,
+    INVERSE_VOL,
     MAX_SHARPE,
     MIN_VOL,
     compute_targets,
@@ -13,7 +14,7 @@ from app.backtest import (
     simulate,
 )
 from app.data import DataError
-from app.optimizer import Constraints
+from app.optimizer import Constraints, OptimizationFailed, inverse_vol_weights
 
 LOOKBACK = 252
 
@@ -204,3 +205,129 @@ def test_run_backtest_reports_rebalance_count_per_frequency():
     assert quarterly.rebalances == 7
     # Both start trading the day after the first signal (Mar 31 2022).
     assert monthly.dates[0] == quarterly.dates[0] == "2022-04-01"
+
+
+# Inverse volatility. Daily returns alternate +s/-s, so each asset's sample std is exactly
+# proportional to s and the weights can be checked by hand.
+def alternating_prices(steps, days=21, start="2024-01-01"):
+    signs = np.where(np.arange(days - 1) % 2 == 0, 1.0, -1.0)
+    returns = np.outer(signs, steps)
+    values = 100 * np.vstack([np.ones(len(steps)), np.cumprod(1 + returns, axis=0)])
+    index = pd.bdate_range(start, periods=days)
+    return pd.DataFrame(values, index=index, columns=[f"A{k}" for k in range(len(steps))])
+
+
+def test_inverse_vol_weights_hand_checked():
+    # Vols in ratio 1:2:4, so inverse vols 4:2:1 and weights 4/7, 2/7, 1/7.
+    weights = inverse_vol_weights(alternating_prices([0.01, 0.02, 0.04]), Constraints())
+    assert list(weights.index) == ["A0", "A1", "A2"]
+    assert weights.to_numpy() == pytest.approx([4 / 7, 2 / 7, 1 / 7], abs=1e-12)
+
+
+def test_inverse_vol_weights_equal_vols_give_equal_weight():
+    weights = inverse_vol_weights(alternating_prices([0.03, 0.03]), Constraints())
+    assert weights.to_numpy() == pytest.approx([0.5, 0.5], abs=1e-12)
+
+
+def test_inverse_vol_weights_cap_redistributes_in_proportion():
+    # 4/7 is above a 50% cap, so A0 gets 50% and the other 50% splits 2:1.
+    prices = alternating_prices([0.01, 0.02, 0.04])
+    weights = inverse_vol_weights(prices, Constraints(max_weight=0.5))
+    assert weights.to_numpy() == pytest.approx([0.5, 1 / 3, 1 / 6], abs=1e-9)
+
+
+def test_inverse_vol_weights_floor_redistributes_in_proportion():
+    # 1/7 is below a 20% floor, so A2 gets 20% and the other 80% splits 2:1.
+    prices = alternating_prices([0.01, 0.02, 0.04])
+    weights = inverse_vol_weights(prices, Constraints(min_weight=0.2))
+    assert weights.to_numpy() == pytest.approx([0.8 * 2 / 3, 0.8 / 3, 0.2], abs=1e-9)
+
+
+def test_inverse_vol_weights_reject_zero_volatility():
+    prices = alternating_prices([0.01, 0.0])
+    with pytest.raises(OptimizationFailed, match="zero or undefined volatility"):
+        inverse_vol_weights(prices, Constraints())
+
+
+def test_inverse_vol_targets_use_only_the_lookback_window():
+    # A1 is calm (+-1%) up to the Jan 31 signal and very volatile (+-10%) afterwards.
+    # With a 20-day lookback the signal must see only the calm 1:2 vol ratio -> 2/3, 1/3.
+    calm = alternating_prices([0.01, 0.02], days=40)
+    signals = signal_positions(calm.index, "monthly", 20)
+    i = signals[0]
+    assert calm.index[i] == pd.Timestamp("2024-01-31")
+    later = calm.pct_change().fillna(0.0)
+    later.iloc[i + 1 :, 0] *= 10
+    prices = 100 * (1 + later).cumprod()
+
+    targets, skips = compute_targets(prices, signals, 20, 0.0, Constraints(), inverse_volatility=True)
+    assert not [s for s in skips if s.strategy == INVERSE_VOL]
+    assert targets[INVERSE_VOL][i] == pytest.approx([2 / 3, 1 / 3], abs=1e-12)
+
+
+def test_inverse_vol_is_opt_in(prices):
+    default = run_backtest(prices, lookback=LOOKBACK, risk_free=0.0)
+    assert INVERSE_VOL not in [s.name for s in default.strategies]
+
+    benchmark = prices["AAA"].rename("SPY")
+    result = run_backtest(
+        prices,
+        benchmark=benchmark,
+        benchmark_name="SPY",
+        lookback=LOOKBACK,
+        risk_free=0.0,
+        inverse_volatility=True,
+    )
+    names = [s.name for s in result.strategies]
+    assert names == [MAX_SHARPE, MIN_VOL, EQUAL_WEIGHT, INVERSE_VOL, "SPY"]
+    by_name = {s.name: s for s in result.strategies}
+    # Turning it on doesn't change the other strategies.
+    for s in default.strategies:
+        assert by_name[s.name].equity == pytest.approx(s.equity)
+    inv = by_name[INVERSE_VOL]
+    assert len(inv.equity) == len(result.dates)
+    assert np.isfinite(inv.equity).all()
+    assert inv.metrics.annual_turnover > 0
+    # Leaning toward the low-vol assets makes it calmer than equal weight here.
+    assert inv.metrics.volatility < by_name[EQUAL_WEIGHT].metrics.volatility
+
+
+def test_inverse_vol_weights_tilt_toward_low_vol_assets(prices):
+    signals = signal_positions(prices.index, "monthly", LOOKBACK)
+    targets, _ = compute_targets(prices, signals, LOOKBACK, 0.0, Constraints(), inverse_volatility=True)
+    assert len(targets[INVERSE_VOL]) == len(signals)
+    for weights in targets[INVERSE_VOL].values():
+        assert weights.sum() == pytest.approx(1)
+        # Fixture vols are AAA 25%, BBB 10%, CCC 18%, DDD 5%.
+        assert weights[3] > weights[1] > weights[2] > weights[0] > 0
+
+
+def test_inverse_vol_respects_weight_bounds_in_backtest(prices):
+    signals = signal_positions(prices.index, "quarterly", LOOKBACK)
+    bounds = Constraints(min_weight=0.1, max_weight=0.4)
+    targets, skips = compute_targets(prices, signals, LOOKBACK, 0.0, bounds, inverse_volatility=True)
+    assert not [s for s in skips if s.strategy == INVERSE_VOL]
+    for weights in targets[INVERSE_VOL].values():
+        assert weights.sum() == pytest.approx(1)
+        assert weights.min() >= 0.1 - 1e-9
+        assert weights.max() <= 0.4 + 1e-9
+
+
+def test_inverse_vol_no_lookahead(prices):
+    signals = signal_positions(prices.index, "monthly", LOOKBACK)
+    cutoff = signals[len(signals) // 2]
+
+    changed = prices.copy()
+    changed.iloc[cutoff + 1 :] *= np.random.default_rng(1).uniform(0.3, 3.0, changed.iloc[cutoff + 1 :].shape)
+
+    args = (signals, LOOKBACK, 0.0, Constraints())
+    original, _ = compute_targets(prices, *args, inverse_volatility=True)
+    perturbed, _ = compute_targets(changed, *args, inverse_volatility=True)
+
+    later_differs = False
+    for i in signals:
+        if i <= cutoff:
+            assert original[INVERSE_VOL][i] == pytest.approx(perturbed[INVERSE_VOL][i], abs=1e-12)
+        elif not np.allclose(original[INVERSE_VOL][i], perturbed[INVERSE_VOL][i], atol=1e-3):
+            later_differs = True
+    assert later_differs  # Proves that the perturbation reached the estimator.

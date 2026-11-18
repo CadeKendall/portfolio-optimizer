@@ -118,3 +118,20 @@ def test_backtest_response_includes_annual_turnover(client):
         assert metrics["annual_turnover"] >= 0
     assert by_name["SPY"]["annual_turnover"] == 0  # buy-and-hold benchmark never trades
     assert by_name["Equal weight"]["annual_turnover"] > 0  # monthly drift gets rebalanced
+
+
+def test_backtest_inverse_volatility_is_opt_in(client):
+    request = {"tickers": ["TLT", "QQQ", "SHY"], "benchmark": "SPY", "years": 5, "lookback_years": 1}
+    default = client.post("/api/backtest", json=request)
+    assert default.status_code == 200, default.text
+    assert "Inverse volatility" not in [s["name"] for s in default.json()["result"]["strategies"]]
+
+    response = client.post("/api/backtest", json={**request, "inverse_volatility": True})
+    assert response.status_code == 200, response.text
+    strategies = response.json()["result"]["strategies"]
+    names = [s["name"] for s in strategies]
+    assert names == ["Max Sharpe", "Min volatility", "Equal weight", "Inverse volatility", "SPY"]
+    inv = strategies[3]
+    assert len(inv["equity"]) == len(response.json()["result"]["dates"])
+    assert set(inv["metrics"]) == set(strategies[2]["metrics"])
+    assert inv["metrics"]["annual_turnover"] > 0

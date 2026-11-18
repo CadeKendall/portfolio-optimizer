@@ -64,6 +64,8 @@ class BacktestRequest(CommonRequest):
     frequency: Literal["monthly", "quarterly"] = "monthly"
     cost_bps: float = Field(5.0, ge=0, le=500)
     benchmark: str | None = "SPY"
+    # Opt-in so the default list of strategies in the response stays the same.
+    inverse_volatility: bool = False
 
     @field_validator("benchmark")
     @classmethod

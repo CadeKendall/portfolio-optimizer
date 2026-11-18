@@ -121,6 +121,7 @@ def create_app(data_dir: Path | None = None, downloader: Downloader = yahoo_down
             cost_bps=req.cost_bps,
             risk_free=req.risk_free,
             constraints=constraints(req),
+            inverse_volatility=req.inverse_volatility,
         )
         return BacktestResponse(data=info(aligned, assets), result=result)
 
