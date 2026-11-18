@@ -1,6 +1,6 @@
 # TODO
 
-- [ ] README: add Windows (PowerShell) setup, run and test commands next to the existing Mac/Linux ones.
+- [x] README: add Windows (PowerShell) setup, run and test commands next to the existing Mac/Linux ones.
 - [ ] Tests for compute_metrics: check every metric it returns against hand-calculated values on a tiny equity series (5-10 points).
 - [ ] Tests for request validation in schemas.py: ticker cleanup (spaces, lowercase, duplicates), invalid min/max weights, end date before start date. Each should give a clear 422.
 - [ ] Tests for efficient_frontier edge cases: two assets, two nearly identical assets, and bounds tight enough that only one portfolio is feasible.
