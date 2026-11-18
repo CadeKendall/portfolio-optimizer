@@ -157,3 +157,50 @@ def test_unsolvable_rebalances_start_equal_weight_then_keep_weights_and_are_repo
 def test_not_enough_history_raises(prices):
     with pytest.raises(DataError, match="Not enough history"):
         run_backtest(prices, lookback=len(prices))
+
+
+# Two full calendar years of business days: Mon 2022-01-03 to Fri 2023-12-29.
+KNOWN_RANGE = pd.bdate_range("2022-01-03", "2023-12-29")
+
+
+def test_monthly_rebalance_dates_on_known_range():
+    signals = signal_positions(KNOWN_RANGE, "monthly", 5)
+    # Every month-end from Jan 2022 to Nov 2023. Dec 2023 is the final partial period.
+    expected = pd.bdate_range("2022-01-01", "2023-11-30", freq="BME")
+    assert len(signals) == 23
+    assert list(KNOWN_RANGE[signals]) == list(expected)
+
+
+def test_quarterly_rebalance_dates_on_known_range():
+    signals = signal_positions(KNOWN_RANGE, "quarterly", 5)
+    # Quarter-ends Q1 2022 to Q3 2023. Q4 2023 is the final partial period.
+    expected = pd.to_datetime(
+        ["2022-03-31", "2022-06-30", "2022-09-30", "2022-12-30", "2023-03-31", "2023-06-30", "2023-09-29"]
+    )
+    assert len(signals) == 7
+    assert list(KNOWN_RANGE[signals]) == list(expected)
+
+
+def test_lookback_drops_early_period_ends_on_known_range():
+    # Row 60 is 2022-03-28, so the Jan (row 20) and Feb (row 39) month-ends lack a full
+    # window, but the Mar 31 (row 63) month-end and quarter-end both qualify.
+    assert KNOWN_RANGE[60] == pd.Timestamp("2022-03-28")
+    monthly = signal_positions(KNOWN_RANGE, "monthly", 60)
+    quarterly = signal_positions(KNOWN_RANGE, "quarterly", 60)
+    assert len(monthly) == 21
+    assert len(quarterly) == 7
+    assert KNOWN_RANGE[monthly[0]] == KNOWN_RANGE[quarterly[0]] == pd.Timestamp("2022-03-31")
+
+
+def test_run_backtest_reports_rebalance_count_per_frequency():
+    rng = np.random.default_rng(3)
+    returns = rng.normal(0.0003, 0.01, size=(len(KNOWN_RANGE), 3))
+    frame = pd.DataFrame(
+        100 * np.cumprod(1 + returns, axis=0), index=KNOWN_RANGE, columns=["A", "B", "C"]
+    )
+    monthly = run_backtest(frame, lookback=60, frequency="monthly", risk_free=0.0)
+    quarterly = run_backtest(frame, lookback=60, frequency="quarterly", risk_free=0.0)
+    assert monthly.rebalances == 21
+    assert quarterly.rebalances == 7
+    # Both start trading the day after the first signal (Mar 31 2022).
+    assert monthly.dates[0] == quarterly.dates[0] == "2022-04-01"
