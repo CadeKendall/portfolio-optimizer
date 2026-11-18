@@ -22,3 +22,5 @@
 
 - 2026-11-17 - Docstrings: added them to all 25 public functions/methods in app/ that lacked one (backtest, data sources/upload store, main, optimizer, schema validators). Docstrings only, except the PriceSource protocol stubs' `...` bodies became docstrings. Suite passes (137).
   Look at: I left Pydantic model classes, dataclasses and the nested route handlers in create_app alone, because FastAPI puts their docstrings into /openapi.json (a visible change). The private helpers (_solve, _portfolio, etc.) are also unchanged.
+- 2026-11-17 - Type hints: annotated the 3 `__init__`s (-> None), `YFinanceSource._refresh`'s params, `_solve`'s mu/cov/**kwargs, the two schema model validators (-> Self), and empty list/dict locals (e.g. `warnings: list[str] = []`). Every function in app/ now has full parameter and return hints. Annotations only; suite passes (137).
+  Look at: mypy isn't installed (I didn't add it), so I checked for missing hints with an AST scan but didn't type-check them. Also, PROGRESS.md has one non-UTF-8 byte (cp1252 dash in the compute_metrics entry); I left it alone.

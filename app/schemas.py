@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from datetime import date
-from typing import Literal
+from typing import Literal, Self
 
 from pydantic import BaseModel, Field, field_validator, model_validator
 
@@ -38,14 +38,14 @@ class CommonRequest(BaseModel):
         return cleaned
 
     @model_validator(mode="after")
-    def upload_needs_id(self):
+    def upload_needs_id(self) -> Self:
         """Require an upload_id when the source is an uploaded CSV."""
         if self.source == "upload" and not self.upload_id:
             raise ValueError("upload a CSV first, or switch the data source to Yahoo")
         return self
 
     @model_validator(mode="after")
-    def min_not_above_max(self):
+    def min_not_above_max(self) -> Self:
         """Reject a minimum weight above the maximum weight."""
         # Checked here so the request fails before any price data is fetched.
         if self.min_weight > self.max_weight:

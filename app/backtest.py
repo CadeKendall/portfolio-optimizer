@@ -132,7 +132,7 @@ def simulate(
     holdings = np.zeros(prices.shape[1])
     nav = 1.0
     equity = np.empty(len(prices) - start)
-    traded = []
+    traded: list[float] = []
     for k in range(start, len(prices)):
         if k > start:
             growth = holdings * prices[k] / prices[k - 1]
@@ -213,7 +213,7 @@ def run_backtest(
     dates = prices.index[start:]
     values = prices.to_numpy(dtype=float)
 
-    strategies = []
+    strategies: list[StrategyResult] = []
     for name, by_signal in targets.items():
         trades = {i + 1: weights for i, weights in by_signal.items()}
         equity, traded = simulate(values, trades, start, cost_bps)

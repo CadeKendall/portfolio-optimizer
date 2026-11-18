@@ -91,7 +91,9 @@ def max_feasible_return(mu: pd.Series, constraints: Constraints) -> float:
     return float(weights @ mu)
 
 
-def _solve(mu, cov, constraints: Constraints, method: str, **kwargs) -> pd.Series:
+def _solve(
+    mu: pd.Series, cov: pd.DataFrame, constraints: Constraints, method: str, **kwargs: float
+) -> pd.Series:
     frontier = EfficientFrontier(
         mu, cov, weight_bounds=(constraints.min_weight, constraints.max_weight)
     )
@@ -184,7 +186,7 @@ def efficient_frontier(
     high_return = max_feasible_return(mu, constraints) - 1e-6
     if high_return <= low_return:
         return []
-    portfolios = []
+    portfolios: list[Portfolio] = []
     for target in np.linspace(low_return, high_return, points):
         try:
             weights = _solve(mu, cov, constraints, "efficient_return", target_return=float(target))
@@ -209,9 +211,9 @@ def optimize(
     check_feasible(prices.shape[1], constraints)
     mu, cov = estimate(prices)
 
-    warnings = []
+    warnings: list[str] = []
     min_vol = _portfolio(min_vol_weights(mu, cov, constraints), mu, cov, risk_free)
-    max_sharpe = None
+    max_sharpe: Portfolio | None = None
     try:
         max_sharpe = _portfolio(
             max_sharpe_weights(mu, cov, risk_free, constraints), mu, cov, risk_free

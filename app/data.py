@@ -74,7 +74,7 @@ class YFinanceSource:
     history rather than appending to it.
     """
 
-    def __init__(self, cache_path: Path, downloader: Downloader = yahoo_download):
+    def __init__(self, cache_path: Path, downloader: Downloader = yahoo_download) -> None:
         self.cache_path = Path(cache_path)
         self.downloader = downloader
         self.cache_path.parent.mkdir(parents=True, exist_ok=True)
@@ -103,7 +103,7 @@ class YFinanceSource:
         are used with a warning.
         """
         with self._connect() as db:
-            coverage = {
+            coverage: dict[str, tuple[date, date, float]] = {
                 row[0]: (date.fromisoformat(row[1]), date.fromisoformat(row[2]), row[3])
                 for row in db.execute(
                     f"SELECT ticker, start, end, fetched_at FROM coverage"
@@ -113,7 +113,7 @@ class YFinanceSource:
             }
 
         now = time.time()
-        stale = []
+        stale: list[str] = []
         for ticker in tickers:
             cov = coverage.get(ticker)
             is_fresh = (
@@ -130,7 +130,14 @@ class YFinanceSource:
             warnings += self._refresh(stale, start, end, coverage, now)
         return Fetched(self._read(tickers, start, end), warnings)
 
-    def _refresh(self, tickers, start, end, coverage, now) -> list[str]:
+    def _refresh(
+        self,
+        tickers: list[str],
+        start: date,
+        end: date,
+        coverage: dict[str, tuple[date, date, float]],
+        now: float,
+    ) -> list[str]:
         # Widen to anything already cached, because the old rows get replaced.
         fetch_start = min([start] + [coverage[t][0] for t in tickers if t in coverage])
         fetch_end = max([end] + [coverage[t][1] for t in tickers if t in coverage])
@@ -139,7 +146,7 @@ class YFinanceSource:
         except Exception:  # yfinance raises many unrelated types during outages
             frame = pd.DataFrame()
 
-        warnings = []
+        warnings: list[str] = []
         with self._connect() as db:
             for ticker in tickers:
                 series = frame[ticker].dropna() if ticker in frame.columns else None
@@ -178,7 +185,7 @@ class YFinanceSource:
 
 
 class CsvSource:
-    def __init__(self, prices: pd.DataFrame):
+    def __init__(self, prices: pd.DataFrame) -> None:
         self.prices = prices
 
     def default_end(self) -> date:
@@ -244,7 +251,7 @@ def parse_csv(raw: bytes) -> pd.DataFrame:
 class UploadStore:
     """Keeps uploaded prices on disk so they survive a server restart."""
 
-    def __init__(self, directory: Path):
+    def __init__(self, directory: Path) -> None:
         self.directory = Path(directory)
         self.directory.mkdir(parents=True, exist_ok=True)
 
@@ -292,7 +299,7 @@ def align_prices(prices: pd.DataFrame, requested: list[str], min_rows: int = MIN
     if not known:
         raise DataError(f"No price data found for: {', '.join(requested)}.")
 
-    warnings = []
+    warnings: list[str] = []
     if unknown:
         warnings.append(f"No price data found for {', '.join(unknown)}, so excluded.")
 

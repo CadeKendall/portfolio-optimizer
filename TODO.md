@@ -10,7 +10,7 @@
 - [x] Add an inverse-volatility (simple risk parity) strategy to the backtest alongside equal weight, with tests including the no-lookahead check.
 - [x] Add an endpoint that returns backtest equity curves as CSV, with an API test.
 - [x] Add docstrings to every public function in app/ that doesn't have one. No behavior changes.
-- [ ] Add missing type hints in app/. No behavior changes.
+- [x] Add missing type hints in app/. No behavior changes.
 
 ## Added by Claude
 - [ ] Make compute_metrics return sharpe=None when volatility is only floating-point noise (e.g. constant +10% returns give vol ~1.8e-15 and Sharpe ~1.4e16).
