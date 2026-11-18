@@ -107,3 +107,37 @@ def test_annual_turnover_from_simulated_drift_and_rebalances():
     m = compute_metrics(equity, DATES, risk_free=0.0, traded=traded)
     # One-way = (0.2 + 1.0) / 2 = 0.6, spread over exactly 4 years.
     assert m.annual_turnover == pytest.approx(0.15)
+
+
+def test_constant_inexact_returns_give_no_sharpe():
+    # +10% every step: 1.1 isn't exact in binary, so the returns differ by ~1e-16
+    # and the raw std is rounding noise rather than 0. Sharpe must still be None.
+    equity = 1.1 ** np.arange(5)
+    daily = equity[1:] / equity[:-1] - 1
+    assert daily.std(ddof=1) > 0  # the noise this test is about
+
+    m = compute_metrics(equity, DATES, risk_free=0.04, traded=[1.0])
+
+    assert m.sharpe is None
+    assert m.volatility == pytest.approx(0.0, abs=1e-12)
+    assert m.cagr == pytest.approx(0.1)
+
+
+def test_flat_equity_gives_no_sharpe():
+    # All-zero returns: zero dispersion and zero scale.
+    equity = np.ones(5)
+    m = compute_metrics(equity, DATES, risk_free=0.04, traded=[1.0])
+    assert m.volatility == 0.0
+    assert m.sharpe is None
+
+
+def test_tiny_but_real_volatility_still_gets_a_sharpe():
+    # Returns of 1.0e-4 and 1.2e-4 alternate: tiny but genuine dispersion.
+    # Mean 1.1e-4; deviations +-1e-5 -> sample variance 4e-10 / 3.
+    returns = np.array([1.0e-4, 1.2e-4, 1.0e-4, 1.2e-4])
+    equity = np.concatenate([[1.0], np.cumprod(1 + returns)])
+    m = compute_metrics(equity, DATES, risk_free=0.0, traded=[1.0])
+
+    expected_vol = math.sqrt(4e-10 / 3 * 252)
+    assert m.volatility == pytest.approx(expected_vol)
+    assert m.sharpe == pytest.approx(1.1e-4 * 252 / expected_vol)

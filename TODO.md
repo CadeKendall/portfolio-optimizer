@@ -13,4 +13,4 @@
 - [x] Add missing type hints in app/. No behavior changes.
 
 ## Added by Claude
-- [ ] Make compute_metrics return sharpe=None when volatility is only floating-point noise (e.g. constant +10% returns give vol ~1.8e-15 and Sharpe ~1.4e16).
+- [x] Make compute_metrics return sharpe=None when volatility is only floating-point noise (e.g. constant +10% returns give vol ~1.8e-15 and Sharpe ~1.4e16).

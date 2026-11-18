@@ -26,6 +26,8 @@ from .optimizer import (
     min_vol_weights,
 )
 
+# Relative tolerance below which a return series' std counts as rounding noise.
+VOL_NOISE_TOLERANCE = 1e-10
 FREQUENCIES = {"monthly": "M", "quarterly": "Q"}
 MAX_SHARPE = "Max Sharpe"
 MIN_VOL = "Min volatility"
@@ -160,20 +162,26 @@ def compute_metrics(
 
     CAGR uses calendar years between the first and last date (365.25 days each).
     Volatility and Sharpe annualize daily returns with TRADING_DAYS; Sharpe is None
-    when volatility is zero. `traded` holds the notional traded at each rebalance;
+    when volatility is zero or only floating-point noise (daily std within
+    VOL_NOISE_TOLERANCE of the largest absolute daily return). `traded` holds the notional traded at each rebalance;
     the first entry (the opening purchase) is excluded from turnover, which is
     one-way (half the traded notional) per year.
     """
     years = (dates[-1] - dates[0]).days / 365.25
     daily = equity[1:] / equity[:-1] - 1
-    volatility = float(daily.std(ddof=1) * np.sqrt(TRADING_DAYS))
+    daily_std = float(daily.std(ddof=1))
+    volatility = daily_std * float(np.sqrt(TRADING_DAYS))
+    # Identical returns that aren't exact in binary (e.g. +10% every step) leave a
+    # std of ~1e-17 rather than 0, which would blow Sharpe up to ~1e16.
+    scale = float(np.abs(daily).max()) if daily.size else 0.0
+    no_dispersion = not daily_std > VOL_NOISE_TOLERANCE * scale
     mean = float(daily.mean() * TRADING_DAYS)
     # The opening purchase isn't turnover. One-way means half the traded notional.
     one_way = sum(traded[1:]) / 2
     return Metrics(
         cagr=float(equity[-1] ** (1 / years) - 1) if years > 0 else 0.0,
         volatility=volatility,
-        sharpe=(mean - risk_free) / volatility if volatility > 0 else None,
+        sharpe=None if no_dispersion else (mean - risk_free) / volatility,
         max_drawdown=float(drawdown_series(equity).min()),
         annual_turnover=one_way / years if years > 0 else 0.0,
     )
