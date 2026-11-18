@@ -135,3 +135,45 @@ def test_backtest_inverse_volatility_is_opt_in(client):
     assert len(inv["equity"]) == len(response.json()["result"]["dates"])
     assert set(inv["metrics"]) == set(strategies[2]["metrics"])
     assert inv["metrics"]["annual_turnover"] > 0
+
+
+def test_backtest_csv_matches_json_equity_curves(client):
+    import csv
+    import io
+
+    request = {"tickers": ["TLT", "QQQ", "SHY"], "benchmark": "SPY", "years": 5, "lookback_years": 1}
+    json_response = client.post("/api/backtest", json=request)
+    assert json_response.status_code == 200, json_response.text
+    result = json_response.json()["result"]
+
+    response = client.post("/api/backtest/csv", json=request)
+    assert response.status_code == 200, response.text
+    assert response.headers["content-type"].startswith("text/csv")
+    assert "attachment" in response.headers["content-disposition"]
+    assert "backtest_equity.csv" in response.headers["content-disposition"]
+
+    rows = list(csv.reader(io.StringIO(response.text)))
+    names = [s["name"] for s in result["strategies"]]
+    assert rows[0] == ["date"] + names
+    assert len(rows) == len(result["dates"]) + 1
+    assert [r[0] for r in rows[1:]] == result["dates"]
+    for col, strategy in enumerate(result["strategies"], start=1):
+        assert [float(r[col]) for r in rows[1:]] == pytest.approx(strategy["equity"], rel=1e-12)
+    # Every curve starts at 1.0 invested.
+    assert all(float(v) == pytest.approx(1.0, abs=0.01) for v in rows[1][1:])
+
+
+def test_backtest_csv_includes_opt_in_strategy_and_returns_422_on_bad_input(client):
+    request = {"tickers": ["TLT", "QQQ"], "benchmark": None, "years": 3, "inverse_volatility": True}
+    response = client.post("/api/backtest/csv", json=request)
+    assert response.status_code == 200, response.text
+    header = response.text.splitlines()[0]
+    assert header == "date,Max Sharpe,Min volatility,Equal weight,Inverse volatility"
+
+    # Errors stay JSON like the other routes, not CSV.
+    unknown = client.post("/api/backtest/csv", json={"tickers": ["NOPE", "NADA"]})
+    assert unknown.status_code == 422
+    assert "price data" in unknown.json()["detail"]
+
+    invalid = client.post("/api/backtest/csv", json={"tickers": ["SPY"]})
+    assert invalid.status_code == 422

@@ -2,15 +2,17 @@
 
 from __future__ import annotations
 
+import csv
+import io
 import os
 from datetime import date, timedelta
 from pathlib import Path
 
 from fastapi import FastAPI, Request, UploadFile
-from fastapi.responses import JSONResponse
+from fastapi.responses import JSONResponse, Response
 from fastapi.staticfiles import StaticFiles
 
-from .backtest import run_backtest
+from .backtest import BacktestResult, run_backtest
 from .data import (
     MIN_ROWS,
     Aligned,
@@ -96,8 +98,7 @@ def create_app(data_dir: Path | None = None, downloader: Downloader = yahoo_down
             warnings=result.warnings,
         )
 
-    @app.post("/api/backtest", response_model=BacktestResponse)
-    def backtest_route(req: BacktestRequest) -> BacktestResponse:
+    def backtest(req: BacktestRequest) -> tuple[Aligned, list[str], BacktestResult]:
         source = source_for(req)
         end = req.end or source.default_end()
         lookback = round(req.lookback_years * TRADING_DAYS)
@@ -123,7 +124,31 @@ def create_app(data_dir: Path | None = None, downloader: Downloader = yahoo_down
             constraints=constraints(req),
             inverse_volatility=req.inverse_volatility,
         )
+        return aligned, assets, result
+
+    @app.post("/api/backtest", response_model=BacktestResponse)
+    def backtest_route(req: BacktestRequest) -> BacktestResponse:
+        aligned, assets, result = backtest(req)
         return BacktestResponse(data=info(aligned, assets), result=result)
+
+    @app.post("/api/backtest/csv")
+    def backtest_csv_route(req: BacktestRequest) -> Response:
+        """Same request as /api/backtest; returns the equity curves as CSV.
+
+        One row per date, one column per strategy (in response order). Values are
+        growth of 1.0, written with full float precision.
+        """
+        _, _, result = backtest(req)
+        out = io.StringIO()
+        writer = csv.writer(out, lineterminator="\n")
+        writer.writerow(["date"] + [s.name for s in result.strategies])
+        for k, day in enumerate(result.dates):
+            writer.writerow([day] + [repr(float(s.equity[k])) for s in result.strategies])
+        return Response(
+            content=out.getvalue(),
+            media_type="text/csv",
+            headers={"Content-Disposition": 'attachment; filename="backtest_equity.csv"'},
+        )
 
     @app.post("/api/prices/upload", response_model=UploadResponse)
     async def upload_route(file: UploadFile) -> UploadResponse:
