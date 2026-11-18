@@ -42,6 +42,16 @@ class CommonRequest(BaseModel):
             raise ValueError("upload a CSV first, or switch the data source to Yahoo")
         return self
 
+    @model_validator(mode="after")
+    def min_not_above_max(self):
+        # Checked here so the request fails before any price data is fetched.
+        if self.min_weight > self.max_weight:
+            raise ValueError(
+                f"the minimum weight ({self.min_weight:.1%}) is above"
+                f" the maximum weight ({self.max_weight:.1%})"
+            )
+        return self
+
 
 class OptimizeRequest(CommonRequest):
     lookback_years: float = Field(5.0, ge=0.5, le=30)
