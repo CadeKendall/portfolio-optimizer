@@ -31,6 +31,7 @@ class CommonRequest(BaseModel):
     @field_validator("tickers")
     @classmethod
     def clean_tickers(cls, values: list[str]) -> list[str]:
+        """Normalize each ticker and drop duplicates, keeping the first occurrence."""
         cleaned = list(dict.fromkeys(_clean_ticker(v) for v in values))
         if len(cleaned) < 2:
             raise ValueError("enter at least two different tickers")
@@ -38,12 +39,14 @@ class CommonRequest(BaseModel):
 
     @model_validator(mode="after")
     def upload_needs_id(self):
+        """Require an upload_id when the source is an uploaded CSV."""
         if self.source == "upload" and not self.upload_id:
             raise ValueError("upload a CSV first, or switch the data source to Yahoo")
         return self
 
     @model_validator(mode="after")
     def min_not_above_max(self):
+        """Reject a minimum weight above the maximum weight."""
         # Checked here so the request fails before any price data is fetched.
         if self.min_weight > self.max_weight:
             raise ValueError(
@@ -70,6 +73,7 @@ class BacktestRequest(CommonRequest):
     @field_validator("benchmark")
     @classmethod
     def clean_benchmark(cls, value: str | None) -> str | None:
+        """Treat a blank benchmark as none; otherwise normalize it like a ticker."""
         if value is None or not value.strip():
             return None
         return _clean_ticker(value)

@@ -149,12 +149,21 @@ def simulate(
 
 
 def drawdown_series(equity: np.ndarray) -> np.ndarray:
+    """Fractional drop from the running peak at each point (0 at a new high, else negative)."""
     return equity / np.maximum.accumulate(equity) - 1
 
 
 def compute_metrics(
     equity: np.ndarray, dates: pd.DatetimeIndex, risk_free: float, traded: list[float]
 ) -> Metrics:
+    """Summary statistics for one equity curve.
+
+    CAGR uses calendar years between the first and last date (365.25 days each).
+    Volatility and Sharpe annualize daily returns with TRADING_DAYS; Sharpe is None
+    when volatility is zero. `traded` holds the notional traded at each rebalance;
+    the first entry (the opening purchase) is excluded from turnover, which is
+    one-way (half the traded notional) per year.
+    """
     years = (dates[-1] - dates[0]).days / 365.25
     daily = equity[1:] / equity[:-1] - 1
     volatility = float(daily.std(ddof=1) * np.sqrt(TRADING_DAYS))
@@ -181,6 +190,14 @@ def run_backtest(
     constraints: Constraints = Constraints(),
     inverse_volatility: bool = False,
 ) -> BacktestResult:
+    """Walk-forward backtest of each strategy, plus an optional benchmark.
+
+    `lookback` is in trading days and `cost_bps` is charged on traded notional.
+    Strategies whose weights can't be computed at a rebalance keep their current
+    holdings (or start equal weight at the first one) and are recorded in `skips`. The benchmark is rescaled to start at
+    1.0 on the first tested day. Raises DataError if the lookback leaves no
+    rebalance dates, and InfeasibleError if the weight bounds can't be met.
+    """
     check_feasible(prices.shape[1], constraints)
     signals = signal_positions(prices.index, frequency, lookback)
     if not signals:

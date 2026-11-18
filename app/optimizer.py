@@ -61,6 +61,7 @@ def estimate(prices: pd.DataFrame) -> tuple[pd.Series, pd.DataFrame]:
 
 
 def check_feasible(n_assets: int, constraints: Constraints) -> None:
+    """Raise InfeasibleError if no weights within the bounds can total 100%."""
     lo, hi = constraints.min_weight, constraints.max_weight
     if lo > hi:
         raise InfeasibleError(
@@ -108,12 +109,18 @@ def _solve(mu, cov, constraints: Constraints, method: str, **kwargs) -> pd.Serie
 
 
 def min_vol_weights(mu: pd.Series, cov: pd.DataFrame, constraints: Constraints) -> pd.Series:
+    """Minimum-volatility weights within the bounds. Raises OptimizationFailed."""
     return _solve(mu, cov, constraints, "min_volatility")
 
 
 def max_sharpe_weights(
     mu: pd.Series, cov: pd.DataFrame, risk_free: float, constraints: Constraints
 ) -> pd.Series:
+    """Maximum-Sharpe weights within the bounds.
+
+    Raises InfeasibleError if no allowed portfolio's expected return beats the
+    risk-free rate, and OptimizationFailed if the solver fails.
+    """
     best = max_feasible_return(mu, constraints)
     if best <= risk_free:
         raise InfeasibleError(
@@ -167,6 +174,12 @@ def efficient_frontier(
     low_return: float,
     points: int = 30,
 ) -> list[Portfolio]:
+    """Up to `points` minimum-volatility portfolios at evenly spaced target returns.
+
+    Targets run from `low_return` to just below the highest return the bounds
+    allow. Targets the solver can't reach are left out; returns [] if the range
+    is empty.
+    """
     # The very top of the range is only just feasible, so stay a hair below it.
     high_return = max_feasible_return(mu, constraints) - 1e-6
     if high_return <= low_return:
@@ -187,6 +200,12 @@ def optimize(
     constraints: Constraints = Constraints(),
     frontier_points: int = 30,
 ) -> OptimizationResult:
+    """Estimate returns and covariance from prices, then find the key portfolios.
+
+    Returns the min-volatility and max-Sharpe portfolios, the efficient frontier
+    from the min-volatility return upward, and per-asset stats. If no max-Sharpe
+    portfolio exists, it is None and the reason is added to `warnings`.
+    """
     check_feasible(prices.shape[1], constraints)
     mu, cov = estimate(prices)
 

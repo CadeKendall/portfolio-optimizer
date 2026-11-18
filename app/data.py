@@ -32,9 +32,11 @@ class Fetched:
 
 
 class PriceSource(Protocol):
-    def default_end(self) -> date: ...
+    def default_end(self) -> date:
+        """The end date to use when a request doesn't give one."""
 
-    def get_prices(self, tickers: list[str], start: date, end: date) -> Fetched: ...
+    def get_prices(self, tickers: list[str], start: date, end: date) -> Fetched:
+        """Prices for `tickers` from `start` to `end` inclusive, one column per ticker."""
 
 
 Downloader = Callable[[list[str], date, date], pd.DataFrame]
@@ -90,9 +92,16 @@ class YFinanceSource:
         return sqlite3.connect(self.cache_path, timeout=30)
 
     def default_end(self) -> date:
+        """Today, since Yahoo has prices up to the latest close."""
         return date.today()
 
     def get_prices(self, tickers: list[str], start: date, end: date) -> Fetched:
+        """Serve prices from the cache, re-downloading tickers that are missing or stale.
+
+        A ticker is stale if its cached range doesn't cover start..end or it was
+        fetched more than CACHE_TTL_SECONDS ago. If a refresh fails, cached prices
+        are used with a warning.
+        """
         with self._connect() as db:
             coverage = {
                 row[0]: (date.fromisoformat(row[1]), date.fromisoformat(row[2]), row[3])
@@ -173,9 +182,11 @@ class CsvSource:
         self.prices = prices
 
     def default_end(self) -> date:
+        """The last date in the uploaded file."""
         return self.prices.index.max().date()
 
     def get_prices(self, tickers: list[str], start: date, end: date) -> Fetched:
+        """Slice the uploaded prices to start..end; tickers not in the file are left out."""
         present = [t for t in tickers if t in self.prices.columns]
         sliced = self.prices.loc[pd.Timestamp(start) : pd.Timestamp(end), present]
         return Fetched(sliced)
@@ -238,12 +249,14 @@ class UploadStore:
         self.directory.mkdir(parents=True, exist_ok=True)
 
     def save(self, raw: bytes) -> tuple[str, pd.DataFrame]:
+        """Parse and store a CSV. The id is derived from the file's SHA-256 hash."""
         prices = parse_csv(raw)
         upload_id = hashlib.sha256(raw).hexdigest()[:16]
         prices.rename_axis("date").to_csv(self.directory / f"{upload_id}.csv")
         return upload_id, prices
 
     def load(self, upload_id: str) -> pd.DataFrame:
+        """Load a stored upload, raising DataError if the id is invalid or unknown."""
         path = self.directory / f"{upload_id}.csv"
         if not UPLOAD_ID_RE.match(upload_id) or not path.exists():
             raise DataError("That uploaded file is no longer available. Please upload it again.")
@@ -258,10 +271,12 @@ class Aligned:
 
     @property
     def start(self) -> date:
+        """First shared trading day."""
         return self.prices.index[0].date()
 
     @property
     def end(self) -> date:
+        """Last shared trading day."""
         return self.prices.index[-1].date()
 
 

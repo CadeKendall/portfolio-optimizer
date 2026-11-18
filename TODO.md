@@ -9,7 +9,7 @@
 - [x] Add annualized turnover to backtest metrics, with a hand-checked test, and add it to the API response.
 - [x] Add an inverse-volatility (simple risk parity) strategy to the backtest alongside equal weight, with tests including the no-lookahead check.
 - [x] Add an endpoint that returns backtest equity curves as CSV, with an API test.
-- [ ] Add docstrings to every public function in app/ that doesn't have one. No behavior changes.
+- [x] Add docstrings to every public function in app/ that doesn't have one. No behavior changes.
 - [ ] Add missing type hints in app/. No behavior changes.
 
 ## Added by Claude

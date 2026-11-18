@@ -41,10 +41,16 @@ MAX_UPLOAD_BYTES = 20 * 1024 * 1024
 
 
 def years_before(end: date, years: float) -> date:
+    """The date `years` years before `end`, counting 365.25 days per year."""
     return end - timedelta(days=round(365.25 * years))
 
 
 def create_app(data_dir: Path | None = None, downloader: Downloader = yahoo_download) -> FastAPI:
+    """Build the app: API routes, error handling and the static page.
+
+    `data_dir` holds the price cache and uploads (default: $PO_DATA_DIR, else
+    ./data). `downloader` fetches Yahoo prices; tests pass an offline one.
+    """
     data_dir = Path(data_dir or os.environ.get("PO_DATA_DIR", ROOT / "data"))
     yahoo = YFinanceSource(data_dir / "prices.db", downloader)
     uploads = UploadStore(data_dir / "uploads")
