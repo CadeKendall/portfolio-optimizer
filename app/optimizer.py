@@ -63,6 +63,7 @@ def estimate(prices: pd.DataFrame) -> tuple[pd.Series, pd.DataFrame]:
 
 
 def check_feasible(n_assets: int, constraints: Constraints) -> None:
+    """Raise InfeasibleError if no weights within the bounds can total 100%."""
     lo, hi = constraints.min_weight, constraints.max_weight
     if lo > hi:
         raise InfeasibleError(
@@ -92,7 +93,9 @@ def max_feasible_return(mu: pd.Series, constraints: Constraints) -> float:
     return float(weights @ mu)
 
 
-def _solve(mu, cov, constraints: Constraints, method: str, **kwargs) -> pd.Series:
+def _solve(
+    mu: pd.Series, cov: pd.DataFrame, constraints: Constraints, method: str, **kwargs: float
+) -> pd.Series:
     frontier = EfficientFrontier(
         mu, cov, weight_bounds=(constraints.min_weight, constraints.max_weight)
     )
@@ -110,12 +113,18 @@ def _solve(mu, cov, constraints: Constraints, method: str, **kwargs) -> pd.Serie
 
 
 def min_vol_weights(mu: pd.Series, cov: pd.DataFrame, constraints: Constraints) -> pd.Series:
+    """Minimum-volatility weights within the bounds. Raises OptimizationFailed."""
     return _solve(mu, cov, constraints, "min_volatility")
 
 
 def max_sharpe_weights(
     mu: pd.Series, cov: pd.DataFrame, risk_free: float, constraints: Constraints
 ) -> pd.Series:
+    """Maximum-Sharpe weights within the bounds.
+
+    Raises InfeasibleError if no allowed portfolio's expected return beats the
+    risk-free rate, and OptimizationFailed if the solver fails.
+    """
     best = max_feasible_return(mu, constraints)
     if best <= risk_free:
         raise InfeasibleError(
@@ -123,6 +132,35 @@ def max_sharpe_weights(
             f" (the best is {best:.2%}), so a maximum Sharpe portfolio doesn't exist."
         )
     return _solve(mu, cov, constraints, "max_sharpe", risk_free_rate=risk_free)
+
+
+def inverse_vol_weights(prices: pd.DataFrame, constraints: Constraints) -> pd.Series:
+    """Weights proportional to 1 / volatility of daily returns (simple risk parity).
+
+    Correlations are ignored. If a weight falls outside the bounds it is clipped, and the
+    other weights are rescaled together so the total is still 100%.
+    """
+    vol = prices.pct_change().dropna(how="any").std(ddof=1).to_numpy(dtype=float)
+    if not (np.isfinite(vol).all() and (vol > 0).all()):
+        raise OptimizationFailed(
+            "inverse volatility: an asset had zero or undefined volatility in the window."
+        )
+    raw = (1 / vol) / (1 / vol).sum()
+    lo, hi = constraints.min_weight, constraints.max_weight
+    if (raw >= lo).all() and (raw <= hi).all():
+        return pd.Series(raw, index=prices.columns)
+
+    # The clipped total grows with the scale, from n*lo at 0 to n*hi at hi/min(raw), and
+    # check_feasible guarantees 1 lies in between. Bisect for the scale that totals 1.
+    low, high = 0.0, hi / raw.min()
+    for _ in range(200):
+        mid = (low + high) / 2
+        if np.clip(mid * raw, lo, hi).sum() < 1:
+            low = mid
+        else:
+            high = mid
+    weights = np.clip(high * raw, lo, hi)
+    return pd.Series(weights / weights.sum(), index=prices.columns)
 
 
 def _portfolio(weights: pd.Series, mu: pd.Series, cov: pd.DataFrame, risk_free: float) -> Portfolio:
@@ -140,11 +178,17 @@ def efficient_frontier(
     low_return: float,
     points: int = 30,
 ) -> list[Portfolio]:
+    """Up to `points` minimum-volatility portfolios at evenly spaced target returns.
+
+    Targets run from `low_return` to just below the highest return the bounds
+    allow. Targets the solver can't reach are left out; returns [] if the range
+    is empty.
+    """
     # The very top of the range is only just feasible, so stay a hair below it.
     high_return = max_feasible_return(mu, constraints) - 1e-6
     if high_return <= low_return:
         return []
-    portfolios = []
+    portfolios: list[Portfolio] = []
     for target in np.linspace(low_return, high_return, points):
         try:
             weights = _solve(mu, cov, constraints, "efficient_return", target_return=float(target))
@@ -160,12 +204,18 @@ def optimize(
     constraints: Constraints = Constraints(),
     frontier_points: int = 30,
 ) -> OptimizationResult:
+    """Estimate returns and covariance from prices, then find the key portfolios.
+
+    Returns the min-volatility and max-Sharpe portfolios, the efficient frontier
+    from the min-volatility return upward, and per-asset stats. If no max-Sharpe
+    portfolio exists, it is None and the reason is added to `warnings`.
+    """
     check_feasible(prices.shape[1], constraints)
     mu, cov = estimate(prices)
 
-    warnings = []
+    warnings: list[str] = []
     min_vol = _portfolio(min_vol_weights(mu, cov, constraints), mu, cov, risk_free)
-    max_sharpe = None
+    max_sharpe: Portfolio | None = None
     try:
         max_sharpe = _portfolio(
             max_sharpe_weights(mu, cov, risk_free, constraints), mu, cov, risk_free

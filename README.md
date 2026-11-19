@@ -5,15 +5,30 @@ It runs locally and listens on `127.0.0.1` only.
 
 ## Run it
 
+Mac/Linux:
+
 ```bash
 python3 -m venv .venv
 .venv/bin/pip install -e '.[dev]'
 .venv/bin/uvicorn app.main:app --host 127.0.0.1 --port 8000
 ```
 
+Windows (PowerShell):
+
+```powershell
+py -3 -m venv .venv
+.venv\Scripts\python -m pip install -e ".[dev]"
+.venv\Scripts\python -m uvicorn app.main:app --host 127.0.0.1 --port 8000
+```
+
 Then open http://127.0.0.1:8000.
 
-Run the tests with `.venv/bin/python -m pytest`. They use synthetic prices and need no network access.
+## Test it
+
+The tests use synthetic prices and need no network access.
+
+- Mac/Linux: `.venv/bin/python -m pytest -q`
+- Windows (PowerShell): `.venv\Scripts\python -m pytest -q`
 
 ## What it does
 

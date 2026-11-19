@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from datetime import date
-from typing import Literal
+from typing import Literal, Self
 
 from pydantic import BaseModel, Field, field_validator, model_validator
 
@@ -31,15 +31,28 @@ class CommonRequest(BaseModel):
     @field_validator("tickers")
     @classmethod
     def clean_tickers(cls, values: list[str]) -> list[str]:
+        """Normalize each ticker and drop duplicates, keeping the first occurrence."""
         cleaned = list(dict.fromkeys(_clean_ticker(v) for v in values))
         if len(cleaned) < 2:
             raise ValueError("enter at least two different tickers")
         return cleaned
 
     @model_validator(mode="after")
-    def upload_needs_id(self):
+    def upload_needs_id(self) -> Self:
+        """Require an upload_id when the source is an uploaded CSV."""
         if self.source == "upload" and not self.upload_id:
             raise ValueError("upload a CSV first, or switch the data source to Yahoo")
+        return self
+
+    @model_validator(mode="after")
+    def min_not_above_max(self) -> Self:
+        """Reject a minimum weight above the maximum weight."""
+        # Checked here so the request fails before any price data is fetched.
+        if self.min_weight > self.max_weight:
+            raise ValueError(
+                f"the minimum weight ({self.min_weight:.1%}) is above"
+                f" the maximum weight ({self.max_weight:.1%})"
+            )
         return self
 
 
@@ -54,10 +67,13 @@ class BacktestRequest(CommonRequest):
     frequency: Literal["monthly", "quarterly"] = "monthly"
     cost_bps: float = Field(5.0, ge=0, le=500)
     benchmark: str | None = "SPY"
+    # Opt-in so the default list of strategies in the response stays the same.
+    inverse_volatility: bool = False
 
     @field_validator("benchmark")
     @classmethod
     def clean_benchmark(cls, value: str | None) -> str | None:
+        """Treat a blank benchmark as none; otherwise normalize it like a ticker."""
         if value is None or not value.strip():
             return None
         return _clean_ticker(value)
