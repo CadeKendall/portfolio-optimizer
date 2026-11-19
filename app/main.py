@@ -93,6 +93,7 @@ def create_app(data_dir: Path | None = None, downloader: Downloader = yahoo_down
             min_volatility=result.min_volatility,
             frontier=result.frontier,
             assets=result.assets,
+            covariance=result.covariance,
             warnings=result.warnings,
         )
 

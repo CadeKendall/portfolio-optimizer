@@ -82,6 +82,7 @@ class OptimizeResponse(BaseModel):
     min_volatility: Portfolio
     frontier: list[Portfolio]
     assets: dict[str, AssetStats]
+    covariance: dict[str, dict[str, float]]
     warnings: list[str]
 
 

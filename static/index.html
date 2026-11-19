@@ -4,142 +4,117 @@
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>Portfolio Optimizer</title>
+  <meta name="description" content="Mean-variance portfolio optimization and walk-forward backtests.">
+  <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16'%3E%3Crect width='16' height='16' fill='%23121212'/%3E%3Cpath d='M3 12 C6 6 9 4 13 3' stroke='%23fff' stroke-width='1.5' fill='none'/%3E%3C/svg%3E">
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500&family=IBM+Plex+Sans:wght@400;500&display=swap" rel="stylesheet">
   <link rel="stylesheet" href="style.css">
-  <script src="plotly.min.js" defer></script>
   <script src="app.js" defer></script>
 </head>
 <body>
-  <header class="topbar">
-    <h1>Portfolio Optimizer</h1>
-    <p class="subtitle">Mean-variance allocation and walk-forward backtests</p>
+  <header class="top">
+    <span class="brand">Portfolio Optimizer</span>
+    <nav class="modes" role="tablist" aria-label="Mode">
+      <button type="button" role="tab" id="tab-optimize" aria-selected="true" aria-controls="view-optimize">Optimize</button>
+      <button type="button" role="tab" id="tab-backtest" aria-selected="false" aria-controls="view-backtest">Backtest</button>
+    </nav>
+    <p class="meta" id="data-meta"></p>
   </header>
 
-  <main class="layout">
-    <form id="inputs" class="panel inputs" autocomplete="off">
-      <h2>Portfolio</h2>
-      <label for="tickers">Tickers</label>
-      <textarea id="tickers" name="tickers" rows="3" spellcheck="false">SPY, TLT, GLD, QQQ</textarea>
-      <p class="hint">Separate with commas or spaces. 2 to 30 tickers.</p>
+  <main class="shell" id="shell">
+    <aside class="rail" aria-label="Inputs">
+      <section>
+        <h2 class="lbl" id="tickers-label">Tickers</h2>
+        <ol class="tickers" id="ticker-list" aria-labelledby="tickers-label"></ol>
+        <form class="add" id="add-form" autocomplete="off">
+          <label class="sr-only" for="add-ticker">Add ticker</label>
+          <input id="add-ticker" type="text" placeholder="Add ticker" spellcheck="false" autocapitalize="characters">
+          <button type="submit" class="ghost">Add</button>
+        </form>
+        <p class="hint" id="ticker-hint">2 to 30 tickers. Paste a list to add several at once.</p>
+      </section>
 
-      <fieldset>
-        <legend>Price data</legend>
-        <label class="radio"><input type="radio" name="source" value="yahoo" checked> Yahoo Finance</label>
-        <label class="radio"><input type="radio" name="source" value="upload"> Uploaded CSV</label>
-        <div id="upload-box" hidden>
-          <input type="file" id="csv-file" accept=".csv,text/csv">
-          <p class="hint">A <code>date</code> column plus one adjusted-price column per ticker.</p>
-          <p id="upload-status" class="hint"></p>
-        </div>
-      </fieldset>
+      <section>
+        <h2 class="lbl">Decision</h2>
+        <p class="verdict" id="verdict" aria-live="polite">Run the optimizer to pick a mix.</p>
+      </section>
 
-      <div class="grid-2">
-        <div>
-          <label for="risk_free">Risk-free rate (%)</label>
-          <input id="risk_free" name="risk_free" type="number" step="0.1" value="4">
+      <section class="settings">
+        <h2 class="lbl">Settings</h2>
+        <div class="field">
+          <span class="field-label" id="source-label">Price data</span>
+          <div class="segmented" role="radiogroup" aria-labelledby="source-label">
+            <button type="button" role="radio" aria-checked="true" data-source="yahoo">Yahoo Finance</button>
+            <button type="button" role="radio" aria-checked="false" data-source="upload">CSV upload</button>
+          </div>
         </div>
-        <div></div>
-        <div>
-          <label for="min_weight">Min weight (%)</label>
-          <input id="min_weight" name="min_weight" type="number" step="1" min="0" max="100" value="0">
+        <div class="field" id="upload-box" hidden>
+          <label class="file">
+            <input type="file" id="csv-file" accept=".csv,text/csv">
+            <span>Choose CSV</span>
+          </label>
+          <p class="hint" id="upload-status">A <code>date</code> column plus one adjusted-price column per ticker.</p>
         </div>
-        <div>
-          <label for="max_weight">Max weight (%)</label>
-          <input id="max_weight" name="max_weight" type="number" step="1" min="1" max="100" value="100">
+        <div class="grid">
+          <div class="field"><label for="risk_free">Risk-free %</label><input id="risk_free" type="number" step="0.1" value="4" inputmode="decimal"></div>
+          <div class="field"><label for="min_weight">Min weight %</label><input id="min_weight" type="number" step="1" min="0" max="100" value="0"></div>
+          <div class="field"><label for="max_weight">Max weight %</label><input id="max_weight" type="number" step="1" min="1" max="100" value="100"></div>
+          <div class="field" data-mode="optimize"><label for="opt_lookback">History, years</label><input id="opt_lookback" type="number" step="0.5" min="0.5" max="30" value="5"></div>
+          <div class="field" data-mode="backtest" hidden><label for="bt_years">Test period, years</label><input id="bt_years" type="number" step="1" min="1" max="40" value="10"></div>
+          <div class="field" data-mode="backtest" hidden><label for="bt_lookback">Lookback, years</label><input id="bt_lookback" type="number" step="0.5" min="0.5" max="10" value="3"></div>
+          <div class="field" data-mode="backtest" hidden><label for="bt_frequency">Rebalance</label>
+            <select id="bt_frequency"><option value="monthly">Monthly</option><option value="quarterly">Quarterly</option></select></div>
+          <div class="field" data-mode="backtest" hidden><label for="bt_cost">Cost, bps</label><input id="bt_cost" type="number" step="1" min="0" max="500" value="5"></div>
+          <div class="field" data-mode="backtest" hidden><label for="bt_benchmark">Benchmark</label><input id="bt_benchmark" type="text" value="SPY" spellcheck="false"></div>
+        </div>
+      </section>
+
+      <button type="button" class="run" id="run">Optimize</button>
+    </aside>
+
+    <section class="stage">
+      <div class="progress" id="progress" hidden></div>
+      <div class="banner error" id="error" role="alert" hidden></div>
+      <div class="banner note" id="notes" hidden></div>
+
+      <div id="view-optimize" role="tabpanel" aria-labelledby="tab-optimize">
+        <div class="chart" id="opt-chart">
+          <canvas class="layer" id="opt-cv" role="img" aria-label="Risk and return of random portfolios, the efficient frontier, and the chosen portfolios"></canvas>
+          <canvas class="layer" id="opt-hv" aria-hidden="true"></canvas>
+          <div class="tip" id="opt-tip" hidden></div>
+          <p class="empty" id="opt-empty">Add at least two tickers, then run the optimizer.</p>
+        </div>
+        <div class="facts" id="opt-facts" hidden>
+          <div class="fact" id="fact-sharpe"></div>
+          <div class="fact" id="fact-minvol"></div>
+          <div class="fact wide">
+            <h3 class="lbl">Asset estimates</h3>
+            <table class="data" id="assets-table"></table>
+          </div>
         </div>
       </div>
-      <p class="hint">Long-only. Each asset's weight stays between the min and max.</p>
-    </form>
 
-    <section class="results">
-      <nav class="tabs" role="tablist">
-        <button type="button" role="tab" id="tab-optimize" aria-selected="true" aria-controls="panel-optimize">Optimize</button>
-        <button type="button" role="tab" id="tab-backtest" aria-selected="false" aria-controls="panel-backtest">Backtest</button>
-      </nav>
-
-      <div id="error" class="banner error" role="alert" hidden></div>
-
-      <section id="panel-optimize" role="tabpanel" aria-labelledby="tab-optimize">
-        <div class="panel controls">
-          <div>
-            <label for="opt_lookback">Estimate from last (years)</label>
-            <input id="opt_lookback" name="opt_lookback" type="number" step="0.5" min="0.5" max="30" value="5">
-          </div>
-          <button type="button" id="run-optimize" class="primary">Optimize</button>
+      <div id="view-backtest" role="tabpanel" aria-labelledby="tab-backtest" hidden>
+        <ul class="legend" id="bt-legend"></ul>
+        <div class="chart tall" id="bt-chart">
+          <canvas class="layer" id="bt-cv" role="img" aria-label="Growth of one dollar and drawdown for each strategy"></canvas>
+          <canvas class="layer" id="bt-hv" aria-hidden="true"></canvas>
+          <div class="tip" id="bt-tip" hidden></div>
+          <p class="empty" id="bt-empty">Choose settings, then run a backtest.</p>
         </div>
-        <div id="optimize-output" class="output" hidden>
-          <div id="opt-data" class="data-info"></div>
-          <div class="tiles" id="opt-tiles"></div>
-          <div class="panel">
-            <h3>Efficient frontier</h3>
-            <div id="frontier-chart" class="chart"></div>
-          </div>
-          <div class="panel">
-            <h3>Weights</h3>
-            <div class="table-wrap"><table id="weights-table" class="data"></table></div>
-          </div>
-          <div class="panel">
-            <h3>Asset estimates</h3>
-            <div class="table-wrap"><table id="assets-table" class="data"></table></div>
-          </div>
-        </div>
-        <p id="optimize-empty" class="empty">Enter tickers and run the optimizer.</p>
-      </section>
-
-      <section id="panel-backtest" role="tabpanel" aria-labelledby="tab-backtest" hidden>
-        <div class="panel controls">
-          <div>
-            <label for="bt_years">Test period (years)</label>
-            <input id="bt_years" name="bt_years" type="number" step="1" min="1" max="40" value="10">
-          </div>
-          <div>
-            <label for="bt_lookback">Lookback (years)</label>
-            <input id="bt_lookback" name="bt_lookback" type="number" step="0.5" min="0.5" max="10" value="3">
-          </div>
-          <div>
-            <label for="bt_frequency">Rebalance</label>
-            <select id="bt_frequency" name="bt_frequency">
-              <option value="monthly">Monthly</option>
-              <option value="quarterly">Quarterly</option>
-            </select>
-          </div>
-          <div>
-            <label for="bt_cost">Cost (bps)</label>
-            <input id="bt_cost" name="bt_cost" type="number" step="1" min="0" max="500" value="5">
-          </div>
-          <div>
-            <label for="bt_benchmark">Benchmark</label>
-            <input id="bt_benchmark" name="bt_benchmark" type="text" value="SPY" spellcheck="false">
-          </div>
-          <button type="button" id="run-backtest" class="primary">Run backtest</button>
-        </div>
-        <div id="backtest-output" class="output" hidden>
-          <div id="bt-data" class="data-info"></div>
-          <div class="panel">
-            <h3>Growth of $1</h3>
-            <div id="equity-chart" class="chart"></div>
-          </div>
-          <div class="panel">
-            <h3>Drawdown</h3>
-            <div id="drawdown-chart" class="chart short"></div>
-          </div>
-          <div class="panel">
-            <h3>Performance</h3>
-            <div class="table-wrap"><table id="metrics-table" class="data"></table></div>
-          </div>
-          <details id="skips" class="panel" hidden>
-            <summary></summary>
-            <ul></ul>
-          </details>
-        </div>
-        <p id="backtest-empty" class="empty">Choose settings and run a backtest.</p>
-      </section>
+        <table class="data metrics" id="metrics-table" hidden></table>
+        <details class="skips" id="skips" hidden><summary></summary><ul></ul></details>
+      </div>
 
       <p class="caveat">
-        Expected returns are estimated from past prices and are very noisy, so treat the
-        weights as a starting point, not a forecast. Backtests carry survivorship bias because
-        they use tickers that exist today. Nothing here is investment advice.
+        Expected returns are estimated from past prices and are very noisy, so treat the weights as a
+        starting point, not a forecast. Backtests carry survivorship bias because they use tickers that
+        exist today. Nothing here is investment advice.
       </p>
     </section>
+
+    <canvas class="flow" id="flow" aria-hidden="true"></canvas>
   </main>
 </body>
 </html>

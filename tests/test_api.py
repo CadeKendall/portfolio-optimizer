@@ -35,6 +35,13 @@ def test_optimize_end_to_end(client):
     assert max(body["min_volatility"]["weights"].values()) <= 0.6 + 1e-6
     assert len(body["frontier"]) > 10
     assert set(body["assets"]) == {"SPY", "TLT", "QQQ", "SHY"}
+    # covariance is returned so the page can draw the random-portfolio cloud
+    cov = body["covariance"]
+    assert set(cov) == {"SPY", "TLT", "QQQ", "SHY"}
+    for a in cov:
+        assert cov[a][a] == pytest.approx(body["assets"][a]["volatility"] ** 2)
+        for b in cov:
+            assert cov[a][b] == pytest.approx(cov[b][a])
 
 
 def test_backtest_end_to_end_with_separate_benchmark(client):

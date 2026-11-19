@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 
 import cvxpy as cp
 import numpy as np
@@ -43,6 +43,8 @@ class OptimizationResult:
     frontier: list[Portfolio]
     assets: dict[str, dict[str, float]]
     warnings: list[str]
+    # Annualized covariance, so the page can sample random portfolios for the risk/return cloud.
+    covariance: dict[str, dict[str, float]] = field(default_factory=dict)
 
 
 def estimate(prices: pd.DataFrame) -> tuple[pd.Series, pd.DataFrame]:
@@ -183,4 +185,5 @@ def optimize(
         }
         for ticker in prices.columns
     }
-    return OptimizationResult(max_sharpe, min_vol, frontier, assets, warnings)
+    covariance = {a: {b: float(cov.loc[a, b]) for b in prices.columns} for a in prices.columns}
+    return OptimizationResult(max_sharpe, min_vol, frontier, assets, warnings, covariance)
