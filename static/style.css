@@ -17,6 +17,7 @@
   --s-minvol: #2F6FB3;
   --s-equal: #8A8A83;
   --s-bench: #B7791F;
+  --s-invvol: #1B8A6B;
   --font: "IBM Plex Sans", system-ui, -apple-system, "Segoe UI", sans-serif;
   --mono: "IBM Plex Mono", ui-monospace, "Cascadia Mono", Consolas, monospace;
 }
@@ -38,6 +39,7 @@
     --s-minvol: #5B9BE0;
     --s-equal: #8E8E87;
     --s-bench: #E0A243;
+    --s-invvol: #3DBF9C;
   }
 }
 
@@ -128,6 +130,15 @@ code { font-family: var(--mono); font-size: 12px; }
 .file span { display: inline-flex; align-items: center; height: 36px; padding: 0 14px; border: 1px solid var(--line-strong); cursor: pointer; transition: background-color 150ms ease; }
 .file span:hover { background: var(--track); }
 .file input:focus-visible + span { outline: 2px solid var(--text); outline-offset: 2px; }
+
+/* square checkbox, drawn to match the sharp inputs */
+.check { display: flex; align-items: center; gap: 10px; min-height: 32px; font-size: 13px; color: var(--muted); cursor: pointer; }
+.check input { appearance: none; margin: 0; width: 16px; height: 16px; border: 1px solid var(--line-strong); background: transparent; display: grid; place-items: center; cursor: pointer; transition: background-color 150ms ease, border-color 150ms ease; }
+.check input:hover { border-color: var(--text); }
+.check input:checked { background: var(--text); border-color: var(--text); }
+.check input:checked::after { content: ""; width: 8px; height: 4px; border: solid var(--panel); border-width: 0 0 2px 2px; transform: translateY(-1px) rotate(-45deg); }
+.check:hover span { color: var(--text); }
+.actions { display: flex; gap: 12px; }
 
 .run {
   position: sticky; bottom: 0; flex-shrink: 0; margin-top: auto; height: 46px;

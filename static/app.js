@@ -48,7 +48,7 @@ function el(tag, attrs = {}, ...children) {
 // ---------------------------------------------------------------------------
 function saveInputs() {
   const values = Object.fromEntries(FIELDS.map((id) => [id, $(id).value]));
-  Object.assign(values, { tickers: state.tickers, source: state.source, uploadId: state.uploadId, uploadMeta: state.uploadMeta });
+  Object.assign(values, { tickers: state.tickers, source: state.source, uploadId: state.uploadId, uploadMeta: state.uploadMeta, invvol: $("bt_invvol").checked });
   try { localStorage.setItem(STORAGE_KEY, JSON.stringify(values)); } catch { /* storage unavailable */ }
 }
 function restoreInputs() {
@@ -60,6 +60,7 @@ function restoreInputs() {
   state.source = v.source === "upload" ? "upload" : "yahoo";
   state.uploadId = v.uploadId || null;
   state.uploadMeta = v.uploadMeta || null;
+  $("bt_invvol").checked = !!v.invvol;
 }
 
 // ---------------------------------------------------------------------------
@@ -542,6 +543,7 @@ const STRATEGY_STYLE = {
   "Max Sharpe": { color: "--s-sharpe", dash: [] },
   "Min volatility": { color: "--s-minvol", dash: [] },
   "Equal weight": { color: "--s-equal", dash: [5, 3] },
+  "Inverse volatility": { color: "--s-invvol", dash: [] },
 };
 const styleFor = (name) => STRATEGY_STYLE[name] || { color: "--s-bench", dash: [] };
 
@@ -656,16 +658,44 @@ async function runBacktest() {
     frequency: $("bt_frequency").value,
     cost_bps: Number($("bt_cost").value),
     benchmark: $("bt_benchmark").value.trim() || null,
+    inverse_volatility: $("bt_invvol").checked,
   };
   const data = await postJson("/api/backtest", payload);
   if (state.bt && state.bt.anim) cancelAnimationFrame(state.bt.anim.raf);
   const model = buildBtModel(data);
-  state.bt = { data, model, anim: null };
+  state.bt = { data, model, payload, anim: null };
+  $("bt-actions").hidden = false;
   $("bt-empty").hidden = true;
   renderMeta(data.data, data.result);
   showNotes(data.data.warnings);
   renderBtTable(data, model);
   animateBacktest();
+}
+
+// Same request as the backtest just shown, so the file matches the chart exactly.
+async function downloadCsv() {
+  const b = state.bt, btn = $("bt-csv");
+  if (!b || btn.getAttribute("aria-busy")) return;
+  btn.setAttribute("aria-busy", "true");
+  const label = btn.textContent;
+  btn.textContent = "Preparing CSV…";
+  try {
+    let res;
+    try {
+      res = await fetch("/api/backtest/csv", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(b.payload) });
+    } catch { throw new Error("Couldn't reach the server. Is it still running?"); }
+    if (!res.ok) { const body = await res.json().catch(() => null); throw new Error(errorMessage(body && body.detail)); }
+    const url = URL.createObjectURL(await res.blob());
+    const a = el("a", { href: url, download: `backtest_${b.data.result.dates[0]}_to_${b.data.result.dates.at(-1)}.csv` });
+    document.body.append(a); a.click(); a.remove();
+    setTimeout(() => URL.revokeObjectURL(url), 1000);
+    clearError();
+  } catch (err) {
+    showError(err.message);
+  } finally {
+    btn.removeAttribute("aria-busy");
+    btn.textContent = label;
+  }
 }
 
 function hoverBt(e) {
@@ -761,6 +791,8 @@ document.addEventListener("DOMContentLoaded", () => {
   document.querySelectorAll("[data-source]").forEach((b) => b.addEventListener("click", () => { state.source = b.dataset.source; syncSource(); saveInputs(); }));
   $("csv-file").addEventListener("change", (e) => { if (e.target.files[0]) uploadCsv(e.target.files[0]); });
   for (const id of FIELDS) $(id).addEventListener("change", saveInputs);
+  $("bt_invvol").addEventListener("change", saveInputs);
+  $("bt-csv").addEventListener("click", downloadCsv);
   $("tab-optimize").addEventListener("click", () => selectMode("optimize"));
   $("tab-backtest").addEventListener("click", () => selectMode("backtest"));
   $("run").addEventListener("click", onRun);

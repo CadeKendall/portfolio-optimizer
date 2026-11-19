@@ -68,6 +68,10 @@
           <div class="field" data-mode="backtest" hidden><label for="bt_cost">Cost, bps</label><input id="bt_cost" type="number" step="1" min="0" max="500" value="5"></div>
           <div class="field" data-mode="backtest" hidden><label for="bt_benchmark">Benchmark</label><input id="bt_benchmark" type="text" value="SPY" spellcheck="false"></div>
         </div>
+        <label class="check" data-mode="backtest" hidden>
+          <input type="checkbox" id="bt_invvol">
+          <span>Include inverse volatility</span>
+        </label>
       </section>
 
       <button type="button" class="run" id="run">Optimize</button>
@@ -104,6 +108,9 @@
           <p class="empty" id="bt-empty">Choose settings, then run a backtest.</p>
         </div>
         <table class="data metrics" id="metrics-table" hidden></table>
+        <div class="actions" id="bt-actions" hidden>
+          <button type="button" class="ghost" id="bt-csv">Download equity curves (CSV)</button>
+        </div>
         <details class="skips" id="skips" hidden><summary></summary><ul></ul></details>
       </div>
 
